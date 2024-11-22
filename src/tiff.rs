@@ -1,3 +1,6 @@
+use nom::{bytes::complete::take, number::complete::{be_u16, be_u32}, IResult};
+
+// TODO: parse IFDs after the first one
 pub struct TiffFile {
     pub header: TiffHeader,
 }
@@ -39,6 +42,7 @@ pub struct TiffIfdEntry {
     pub value_offset: u32,
 }
 
+#[derive(Debug)]
 pub enum TiffTag {
     ImageWidth,
     ImageLength,
@@ -82,6 +86,64 @@ pub enum TiffTag {
     SubIFDOffset,
     ImageLayer,
     End,
+}
+
+impl TiffTag {
+    pub fn from_u16(value: u16) -> TiffTag {
+        match value {
+            256 => TiffTag::ImageWidth,
+            257 => TiffTag::ImageLength,
+            258 => TiffTag::BitsPerSample,
+            259 => TiffTag::Compression,
+            262 => TiffTag::PhotometricInterpretation,
+            273 => TiffTag::StripOffsets,
+            278 => TiffTag::RowsPerStrip,
+            279 => TiffTag::StripByteCounts,
+            282 => TiffTag::XResolution,
+            283 => TiffTag::YResolution,
+            296 => TiffTag::ResolutionUnit,
+            320 => TiffTag::ColorMap,
+            338 => TiffTag::ExtraSamples,
+            339 => TiffTag::SampleFormat,
+            301 => TiffTag::TransferFunction,
+            305 => TiffTag::Software,
+            306 => TiffTag::DateTime,
+            315 => TiffTag::Artist,
+            316 => TiffTag::HostComputer,
+            317 => TiffTag::Predictor,
+            318 => TiffTag::WhitePoint,
+            319 => TiffTag::PrimaryChromaticities,
+            _ => panic!("Invalid TiffTag: {}", value),
+        }
+    }
+
+    pub fn to_u16(&self) -> u16 {
+        match self {
+            TiffTag::ImageWidth => 256,
+            TiffTag::ImageLength => 257,
+            TiffTag::BitsPerSample => 258,
+            TiffTag::Compression => 259,
+            TiffTag::PhotometricInterpretation => 262,
+            TiffTag::StripOffsets => 273,
+            TiffTag::RowsPerStrip => 278,
+            TiffTag::StripByteCounts => 279,
+            TiffTag::XResolution => 282,
+            TiffTag::YResolution => 283,
+            TiffTag::ResolutionUnit => 296,
+            TiffTag::ColorMap => 320,
+            TiffTag::ExtraSamples => 338,
+            TiffTag::SampleFormat => 339,
+            TiffTag::TransferFunction => 301,
+            TiffTag::Software => 305,
+            TiffTag::DateTime => 306,
+            TiffTag::Artist => 315,
+            TiffTag::HostComputer => 316,
+            TiffTag::Predictor => 317,
+            TiffTag::WhitePoint => 318,
+            TiffTag::PrimaryChromaticities => 319,
+            _ => panic!("Invalid TiffTag: {:?}", self),
+        }
+    }
 }
 
 pub enum TiffDataType {
@@ -171,4 +233,66 @@ impl TiffByteOrder {
             TiffByteOrder::BigEndian => "MM",
         }
     }
+}
+
+fn parse_header(input: &[u8]) -> IResult<&[u8], TiffHeader> {
+    let (input, byte_order) = be_u16(input)?;
+    let (input, _version) = be_u16(input)?;
+    let (input, first_ifd_offset) = be_u32(input)?;
+
+    let byte_order = TiffByteOrder::from_u16(byte_order);
+
+    Ok((
+        input,
+        TiffHeader::new(byte_order, first_ifd_offset),
+    ))
+}
+
+fn parse_directory_entry(input: &[u8]) -> IResult<&[u8], TiffIfdEntry> {
+    let (input, tag) = be_u16(input)?;
+    let (input, field_type) = be_u16(input)?;
+    let (input, count) = be_u32(input)?;
+    let (input, value_offset) = be_u32(input)?;
+
+    Ok((
+        input,
+        TiffIfdEntry {
+            tag: TiffTag::from_u16(tag),
+            field_type: TiffDataType::from_u16(field_type),
+            count,
+            value_offset,
+        },
+    ))
+}
+
+fn parse_ifd(input: &[u8]) -> IResult<&[u8], TiffIfd> {
+    let (input, num_entries) = be_u16(input)?;
+    let (input, directory_entries) = take(num_entries * 12)(input)?;
+    let (input, next_ifd_offset) = be_u32(input)?;
+
+    let (_, directory_entries) = take(num_entries * 12)(directory_entries)?;
+
+    let mut directory_entries = directory_entries;
+    let mut entries = Vec::new();
+
+    while !directory_entries.is_empty() {
+        let (remaining, entry) = parse_directory_entry(directory_entries)?;
+        directory_entries = remaining;
+        entries.push(entry);
+    }
+
+    Ok((
+        input,
+        TiffIfd {
+            num_entries,
+            directory_entries: entries,
+            next_ifd_offset,
+        },
+    ))
+}
+
+fn parse_tiff(input: &[u8]) -> IResult<&[u8], TiffFile> {
+    let (input, header) = parse_header(input)?;
+
+    Ok((input, TiffFile { header }))
 }
