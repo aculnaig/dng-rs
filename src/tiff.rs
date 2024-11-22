@@ -1,6 +1,7 @@
 use nom::{bytes::complete::take, number::complete::{be_u16, be_u32}, IResult};
 
 // TODO: parse IFDs after the first one
+// TODO: change IResult<I, O> to Result<O, E> where O: Output, E: Error
 pub struct TiffFile {
     pub header: TiffHeader,
 }
@@ -235,7 +236,7 @@ impl TiffByteOrder {
     }
 }
 
-fn parse_header(input: &[u8]) -> IResult<&[u8], TiffHeader> {
+pub fn parse_header(input: &[u8]) -> IResult<&[u8], TiffHeader> {
     let (input, byte_order) = be_u16(input)?;
     let (input, _version) = be_u16(input)?;
     let (input, first_ifd_offset) = be_u32(input)?;
@@ -248,7 +249,7 @@ fn parse_header(input: &[u8]) -> IResult<&[u8], TiffHeader> {
     ))
 }
 
-fn parse_directory_entry(input: &[u8]) -> IResult<&[u8], TiffIfdEntry> {
+pub fn parse_directory_entry(input: &[u8]) -> IResult<&[u8], TiffIfdEntry> {
     let (input, tag) = be_u16(input)?;
     let (input, field_type) = be_u16(input)?;
     let (input, count) = be_u32(input)?;
@@ -265,7 +266,7 @@ fn parse_directory_entry(input: &[u8]) -> IResult<&[u8], TiffIfdEntry> {
     ))
 }
 
-fn parse_ifd(input: &[u8]) -> IResult<&[u8], TiffIfd> {
+pub fn parse_ifd(input: &[u8]) -> IResult<&[u8], TiffIfd> {
     let (input, num_entries) = be_u16(input)?;
     let (input, directory_entries) = take(num_entries * 12)(input)?;
     let (input, next_ifd_offset) = be_u32(input)?;
@@ -291,7 +292,7 @@ fn parse_ifd(input: &[u8]) -> IResult<&[u8], TiffIfd> {
     ))
 }
 
-fn parse_tiff(input: &[u8]) -> IResult<&[u8], TiffFile> {
+pub fn parse_tiff(input: &[u8]) -> IResult<&[u8], TiffFile> {
     let (input, header) = parse_header(input)?;
 
     Ok((input, TiffFile { header }))
